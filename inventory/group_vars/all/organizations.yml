@@ -1,0 +1,7 @@
+---
+aap_organizations:
+  - name: Finance
+    description: Finance Department
+    max_hosts: 25
+  - name: IT
+    description: Information Technology Department

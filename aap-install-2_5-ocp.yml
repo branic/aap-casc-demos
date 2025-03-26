@@ -1,0 +1,49 @@
+---
+- name: Install AAP 2.5 on OCP playbook
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    # aap_ocp_install_namespace: ansible-automation-platform-operator
+    aap_ocp_install_namespace: aap-operator
+    aap_ocp_install_operator:
+      channel: "stable-2.5-cluster-scoped"
+      # channel: "stable-2.5"
+      # approval: Manual
+    aap_ocp_install_platform:
+      instance_name: aap-dev-platform
+      namespace: aap-platform
+      link_text: Test AAP Platform
+    aap_ocp_install_controller:
+      install: true
+      link_text: Test AAP Controller
+      namespace: brant-aap-ctlr
+      instance_name: tst-ctlr
+      controller_manifest_overrides:
+          spec:
+            task_replicas: 2
+      # admin_user: ac_admin
+      # garbage_collect_secrets: true
+      # create_preload_data: true
+      # image_pull_policy: Always
+      # replicas: 1
+      # projects_persistence: true
+      # projects_storage_size: 12 Gi
+      # link_text: Brant Testing
+    aap_ocp_install_hub:
+      install: true
+      namespace: brant-aap-hub
+      # storage_type: file
+      # instance_name: tst-hub
+      # link_text: Test AAP Hub
+    aap_ocp_install_eda:
+      install: true
+      namespace: brant-aap-eda
+      # instance_name: brant-aap-eda
+      # link_text: Test AAP EDA
+    aap_ocp_install_lightspeed:
+      install: true
+
+  roles:
+    - infra.aap_utilities.aap_ocp_install
+...

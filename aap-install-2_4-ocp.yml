@@ -1,0 +1,37 @@
+---
+- name: Install AAP 2.4 on OCP playbook
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    aap_ocp_install_namespace: aap-demo
+    # aap_ocp_install_operator:
+      # channel: "stable-2.4-cluster-scoped"
+      # channel: "stable-2.4"
+      # approval: Manual
+    aap_ocp_install_controller:
+      # namespace: demo-aap-ctlr
+      instance_name: demo-ctlr
+      link_text: Demo - AAP Controller
+      controller_manifest_overrides:
+        spec:
+          task_replicas: 2
+      # admin_user: ac_admin
+      # garbage_collect_secrets: true
+      # create_preload_data: true
+      # image_pull_policy: Always
+      # replicas: 1
+      # projects_persistence: true
+      # projects_storage_size: 12 Gi
+    # aap_ocp_install_hub:
+    #   # namespace: aap-hub
+    #   instance_name: demo-hub
+    #   link_text: Demo - AAP Private Hub
+    # aap_ocp_install_eda:
+    #   # namespace: aap-eda
+    #   instance_name: demo-eda
+    #   link_text: Demo - AAP EDA
+
+  roles:
+    - infra.aap_utilities.aap_ocp_install
+...

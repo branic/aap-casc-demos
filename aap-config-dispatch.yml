@@ -1,0 +1,7 @@
+---
+- name: AAP Configuration Demo
+  hosts: localhost
+  gather_facts: false
+
+  roles:
+    - role: infra.aap_configuration.dispatch

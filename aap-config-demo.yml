@@ -1,0 +1,13 @@
+---
+- name: AAP Configuration Demo
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Configure Gateway Settings
+      ansible.builtin.import_role:
+        name: infra.aap_configuration.gateway_settings
+
+    - name: Configure Organizations
+      ansible.builtin.import_role:
+        name: infra.aap_configuration.gateway_organizations
