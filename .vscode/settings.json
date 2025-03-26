@@ -1,0 +1,11 @@
+{
+    "ansible.python.interpreterPath": "/usr/bin/python3",
+    "files.associations": {
+        "*.yml": "ansible",
+        ".markdownlint.yml": "yaml",
+        ".yamllint.yml": "yaml",
+        "devfile.yaml": "yaml",
+        "**/.github/**/*.yml": "yaml"
+      },
+
+}

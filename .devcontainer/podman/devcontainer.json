@@ -1,7 +1,8 @@
 {
   "name": "ansible-dev-container-podman",
   // "image": "ghcr.io/ansible/community-ansible-dev-tools:latest",
-  "image": "localhost/dev-ee:dev",
+  // "image": "localhost/dev-ee:dev",
+  "image": "quay.io/branic/development-ee:latest",
   "containerUser": "root",
   "runArgs": [
     "--cap-add=SYS_ADMIN",
