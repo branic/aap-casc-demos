@@ -1,0 +1,5 @@
+---
+manifest_uuid:
+manifest_file_name: "/workspaces/aap-config-demo/manifest-{{ manifest_uuid }}.zip"
+controller_license:
+  manifest_file: "{{ manifest_file_name }}"

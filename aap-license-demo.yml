@@ -1,0 +1,65 @@
+---
+- name: AAP License Demo
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Retrieve a RHSM access token
+      ansible.builtin.uri:
+        url: https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token
+        method: POST
+        headers:
+          Accept: application/json
+        body_format: form-urlencoded
+        body:
+          - [grant_type, refresh_token]
+          - [client_id, rhsm-api]
+          - [refresh_token, "{{ rhsm_offline_token }}"]
+        status_code:
+          - 200
+      register: access_token_result
+      no_log: true
+
+    - name: Set access token fact
+      ansible.builtin.set_fact:
+        rhsm_access_token: "{{ access_token_result['json']['access_token'] }}"
+      no_log: true
+
+    - name: Request manifest export
+      ansible.builtin.uri:
+        url: "https://api.access.redhat.com/management/v1/allocations/{{ manifest_uuid }}/export"
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: Bearer {{ rhsm_access_token }}
+        status_code:
+          - 200
+      register: export_request_result
+      no_log: true
+
+    - name: Get export job result
+      ansible.builtin.uri:
+        url: "{{ export_request_result['json']['body']['href'] }}"
+        method: GET
+        headers:
+          Accept: application/json
+          Authorization: Bearer {{ rhsm_access_token }}
+      register: export_job_result
+      retries: 20
+      delay: 10
+      until: export_job_result.status == 200
+      no_log: true
+
+    - name: Get manifest file
+      ansible.builtin.get_url:
+        url: "{{ export_job_result['json']['body']['href'] }}"
+        headers:
+          Accept: application/zip
+          Authorization: Bearer {{ rhsm_access_token }}
+        dest: "{{ manifest_file_name }}"
+        mode: "0640"
+      no_log: true
+
+    - name: Apply AAP Subscription
+      ansible.builtin.import_role:
+        name: infra.controller_configuration.license
