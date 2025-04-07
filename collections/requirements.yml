@@ -5,7 +5,7 @@ collections:
   - name: infra.aap_utilities
 
   - name: infra.controller_configuration
-    version: ">=4.5.0,<4.6.0"
+    version: ">=3.0.0"
 
   # - name: ansible.posix
   #   version: 1.4.0
