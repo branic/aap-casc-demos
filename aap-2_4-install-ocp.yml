@@ -24,9 +24,15 @@
       # projects_persistence: true
       # projects_storage_size: 12 Gi
     # aap_ocp_install_hub:
-    #   # namespace: aap-hub
-    #   instance_name: demo-hub
-    #   link_text: Demo - AAP Private Hub
+      # namespace: aap-hub
+      # instance_name: demo-hub
+      # link_text: Demo - AAP Private Hub
+      # hub_manifest_overrides:
+      # namespace_manifest_overrides:
+      #   spec:
+      #     storage_type: File
+      #     file_storage_access_mode: ReadWriteMany
+      #     file_storage_storage_class: efs-sc
     # aap_ocp_install_eda:
     #   # namespace: aap-eda
     #   instance_name: demo-eda

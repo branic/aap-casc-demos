@@ -1,10 +1,12 @@
-# Branic Demo Ansible Project
+# AAP Configuration Demos
 
 ## Included content/ Directory Structure
 
-The directory structure follows best practices recommended by the Ansible community. Feel free to customize this template according to your specific project requirements.
+The directory structure follows best practices recommended by the Ansible
+community. Feel free to customize this template according to your specific
+project requirements.
 
-```
+```text
  ansible-project/
  |── .devcontainer/
  |    └── docker/
@@ -40,6 +42,33 @@ The directory structure follows best practices recommended by the Ansible commun
  |── site.yml
 ```
 
+## AAP 2.4 Collection requirements
+
+To use the AAP 2.4 playbooks the following collections are needed.
+
+```yaml
+  galaxy:
+    collections:
+      - name: ansible.controller
+        version: ">=4.5.0,<4.6.0"
+      - name: infra.controller_configuration
+      - name: infra.aap_utilities
+```
+
+## AAP 2.5 Collection requirements
+
+To use the AAP 2.4 playbooks the following collections are needed.
+
+```yaml
+  galaxy:
+    collections:
+      - name: ansible.controller
+        version: ">=4.6.0"
+      - name: infra.aap_configuration
+      - name: infra.aap_utilities
+```
+
 ## Compatible with Ansible-lint
 
-Tested with ansible-lint >=24.2.0 releases and the current development version of ansible-core.
+Tested with ansible-lint >=24.2.0 releases and the current development version
+of ansible-core.
