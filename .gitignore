@@ -168,5 +168,8 @@ cython_debug/
 # MacOS
 .DS_Store
 
-# Ansible
+# Ignore Ansible directory created by ansible-lint
 .ansible/
+
+# Ignore variable files that should not be commited
+inventory/**/z_local_*.yml
