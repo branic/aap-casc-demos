@@ -3,8 +3,8 @@
 # this issue describes similar behavior but suggested fix doesn't work
 # https://github.com/ansible/ansible-lint/issues/371
 exclude_paths:
-  - 'collections/ansible_collections/'
-  - 'check_before_commiting'
+  - collections/ansible_collections/
+  - check_before_commiting
 parseable: true
 use_default_rules: true
 # https://github.com/ansible/ansible-lint/issues/808
@@ -12,4 +12,3 @@ use_default_rules: true
 # verbosity: 1
 skip_list:
   - var-naming[no-role-prefix]
-...

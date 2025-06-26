@@ -29,7 +29,7 @@
 
         - name: Request manifest export
           ansible.builtin.uri:
-            url: "https://api.access.redhat.com/management/v1/allocations/{{ manifest_uuid }}/export"
+            url: https://api.access.redhat.com/management/v1/allocations/{{ manifest_uuid }}/export
             method: GET
             headers:
               Accept: application/json

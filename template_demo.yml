@@ -4,10 +4,9 @@
   gather_facts: false
 
   vars:
-    my_var: "Secret Data"
+    my_var: Secret Data
 
   tasks:
-
     - name: Render Template
       ansible.builtin.set_fact:
         my_example: "{{ lookup('ansible.builtin.template', 'example.json.j2') }}"
