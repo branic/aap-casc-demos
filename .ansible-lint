@@ -4,8 +4,6 @@
 # https://github.com/ansible/ansible-lint/issues/371
 exclude_paths:
   - 'collections/ansible_collections/'
-  - 'check_before_commiting'
-parseable: true
 use_default_rules: true
 # https://github.com/ansible/ansible-lint/issues/808
 #  with verbosity set to 1, its dumping 'unknown file type messages'
