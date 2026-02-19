@@ -171,5 +171,6 @@ cython_debug/
 # Ignore Ansible directory created by ansible-lint
 .ansible/
 
-# Ignore variable files that should not be commited
+# Ignore variable files that should not be committed
 inventory/**/z_local_*.yml
+/tf_ansible_vars.yml
