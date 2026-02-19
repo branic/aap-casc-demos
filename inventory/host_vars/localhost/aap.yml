@@ -1,0 +1,143 @@
+---
+aap_ocp_install_namespace: aap-demo
+
+aap_ocp_install_operator:
+  # channel: "stable-2.4-cluster-scoped"
+  channel: "stable-2.4"
+  approval: Manual
+
+aap_ocp_external_db:
+  platform:
+    enabled: true
+    secret_name: demo-aap-db-config
+    host:
+    port:
+    name:
+    username:
+    password:
+    sslmode: "prefer"
+  controller:
+    enabled: true
+    secret_name: demo-ctlr-db-config
+    host:
+    port:
+    name:
+    username:
+    password:
+    sslmode: "prefer"
+  hub:
+    enabled: true
+    secret_name: demo-pah-db-config
+    host:
+    port:
+    name:
+    username:
+    password:
+    sslmode: "prefer"
+
+aap_ocp_install_platform:
+  instance_name: demo-aap
+  link_text: Demo - AAP
+  eda_disabled: true
+
+aap_ocp_install_controller:
+  # namespace: demo-aap-ctlr
+  instance_name: demo-ctlr
+  link_text: Demo - AAP Controller
+  controller_manifest_overrides:
+    spec:
+      postgres_configuration_secret: "{{ aap_ocp_external_db.controller.secret_name if aap_ocp_external_db.controller.enabled | default(false) | bool else omit }}"
+      # task_replicas: 3
+      # web_replicas: 3
+      # ee_resource_requirements:
+      #   limits:
+      #     cpu: 500m
+      #     memory: 400Mi
+      #   requests:
+      #     cpu: 100m
+      #     memory: 400Mi
+      # task_resource_requirements:
+      #   limits:
+      #     cpu: 2000m
+      #     memory: 4Gi
+      #   requests:
+      #     cpu: 2000m
+      #     memory: 4Gi
+      # web_resource_requirements:
+      #   limits:
+      #     cpu: 2000m
+      #     memory: 4Gi
+      #   requests:
+      #     cpu: 2000m
+      #     memory: 4Gi
+      # redis_resource_requirements:
+      #   limits:
+      #     cpu: 500m
+      #     memory: 1.5Gi
+      #   requests:
+      #     cpu: 250m
+      #     memory: 1.5Gi
+  # admin_user: ac_admin
+  # garbage_collect_secrets: true
+  # create_preload_data: true
+  # image_pull_policy: Always
+  # replicas: 1
+  # projects_persistence: true
+  # projects_storage_size: 12 Gi
+
+aap_ocp_install_hub:
+  # namespace: aap-hub
+  instance_name: demo-hub
+  link_text: Demo - AAP Private Hub
+  hub_manifest_overrides:
+    spec:
+      storage_type: File
+      file_storage_access_mode: ReadWriteMany
+      file_storage_storage_class: "{{ rwx_storage_class_name }}"
+      postgres_configuration_secret: "{{ aap_ocp_external_db.hub.secret_name if aap_ocp_external_db.hub.enabled | default(false) | bool else omit }}"
+      pulp_settings:
+        CONNECTED_ANSIBLE_CONTROLLERS:
+          - "{{ aap_ocp_install_controller_route | default(omit) }}"
+      # content:
+      #   replicas: 1
+      #   resource_requirements:
+      #     limits:
+      #       # cpu: 250m
+      #       # memory: 400Mi
+      #       cpu: 800m
+      #       memory: 1200Mi
+      #     requests:
+      #       cpu: 150m
+      #       memory: 256Mi
+      # redis:
+      #   replicas: 1
+      #   resource_requirements:
+      #     limits:
+      #       cpu: 300m
+      #       memory: 400Mi
+      #     requests:
+      #       cpu: 100m
+      #       memory: 250Mi
+      # api:
+      #   replicas: 1
+      #   resource_requirements:
+      #     limits:
+      #       cpu: 800m
+      #       memory: 500Mi
+      #     requests:
+      #       cpu: 150m
+      #       memory: 256Mi
+      # worker:
+      #   replicas: 1
+      #   resource_requirements:
+      #     limits:
+      #       cpu: 800m
+      #       memory: 400Mi
+      #     requests:
+      #       cpu: 150m
+      #       memory: 256Mi
+
+# aap_ocp_install_eda:
+  # namespace: aap-eda
+  # instance_name: demo-eda
+  # link_text: Demo - AAP EDA
