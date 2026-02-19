@@ -4,4 +4,4 @@
   gather_facts: false
 
   roles:
-    - role: infra.aap_configuration.dispatch
+    - role: infra.controller_configuration.dispatch
