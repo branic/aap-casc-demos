@@ -117,9 +117,21 @@
     - infra.aap_utilities.aap_ocp_install
 
   post_tasks:
-    - name: Output Controller and Automation Hub URLs
+    - name: Output AAP URLs
       ansible.builtin.debug:
-        msg:
-          - "AAP Controller URL - {{ aap_ocp_install_controller_route | default('N/A') }}"
-          - "AAP Automation Hub URL - {{ aap_ocp_install_controller_route | default('N/A') }}"
+        msg: >-
+          {{
+            ((aap_ocp_install_platform_route | default('')) | length > 0) |
+            ternary(
+              ['AAP Platform URL - ' ~ (aap_ocp_install_platform_route | default(''))],
+              (
+                ((aap_ocp_install_controller_route | default('')) | length > 0) |
+                ternary(['AAP Controller URL - ' ~ (aap_ocp_install_controller_route | default(''))], [])
+              ) +
+              (
+                ((aap_ocp_install_hub_route | default('')) | length > 0) |
+                ternary(['AAP Automation Hub URL - ' ~ (aap_ocp_install_hub_route | default(''))], [])
+              )
+            )
+          }}
 ...
