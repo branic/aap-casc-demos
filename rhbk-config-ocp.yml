@@ -1,0 +1,689 @@
+---
+- name: Configure RHBK on OCP playbook
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Configure Red Hat Build of Keycloak (Block)
+      block:
+        - name: Get OpenShift API token
+          redhat.openshift.openshift_auth:
+            host: "{{ aap_ocp_install_connection['host'] | mandatory }}"
+            username: "{{ aap_ocp_install_connection['username'] | mandatory }}"
+            password: "{{ aap_ocp_install_connection['password'] | mandatory }}"
+            validate_certs: "{{ aap_ocp_install_connection['validate_certs'] | default(omit) }}"
+          register: pre_tasks_auth_results
+          when: aap_ocp_install_connection['api_key'] is not defined
+
+        - name: Set authentication for provided API key
+          ansible.builtin.set_fact:
+            pre_tasks_auth_results:
+              openshift_auth:
+                host: "{{ aap_ocp_install_connection['host'] | mandatory }}"
+                api_key: "{{ aap_ocp_install_connection['api_key'] | mandatory }}"
+                validate_certs: "{{ aap_ocp_install_connection['validate_certs'] | default(omit) }}"
+          when: aap_ocp_install_connection['api_key'] is defined
+
+        - name: RHBK configuration (Block)
+          environment:
+            K8S_AUTH_HOST: "{{ pre_tasks_auth_results['openshift_auth']['host'] }}"
+            K8S_AUTH_API_KEY: "{{ pre_tasks_auth_results['openshift_auth']['api_key'] }}"
+            K8S_AUTH_VERIFY_SSL: "{{ aap_ocp_install_connection['validate_certs'] | default(omit) }}"
+          block:
+            - name: Read RHBK initial admin secret
+              kubernetes.core.k8s_info:
+                kind: Secret
+                name: "{{ rhbk_instance_name }}-initial-admin"
+                namespace: "{{ rhbk_namespace }}"
+                api_version: v1
+              register: rhbk_admin_secret
+              no_log: true
+
+            - name: Set RHBK admin credentials
+              ansible.builtin.set_fact:
+                _rhbk_initial_admin_user: "{{ rhbk_admin_secret.resources[0].data.username | b64decode }}"
+                _rhbk_initial_admin_password: "{{ rhbk_admin_secret.resources[0].data.password | b64decode }}"
+              no_log: true
+
+            - name: Generate RHBK auth token
+              ansible.builtin.uri:
+                url: "{{ rhbk_url }}/realms/master/protocol/openid-connect/token"
+                method: POST
+                body: "client_id=admin-cli&username={{ _rhbk_initial_admin_user }}&password={{ _rhbk_initial_admin_password }}&grant_type=password"
+                validate_certs: "{{ rhbk_validate_certs }}"
+              register: _rhbk_auth_response
+              no_log: true
+
+            - name: Create AAP realm in RHBK
+              redhat.rhbk.rhbk_realm:
+                auth_rhbk_url: "{{ rhbk_url }}"
+                token: "{{ _rhbk_auth_response.json.access_token }}"
+                validate_certs: "{{ rhbk_validate_certs }}"
+                id: "{{ rhbk_realm_name }}"
+                realm: "{{ rhbk_realm_name }}"
+                display_name: "{{ rhbk_realm_display_name }}"
+                enabled: true
+                state: present
+
+            - name: Configure AAP realm user profile in RHBK
+              community.general.keycloak_userprofile:
+                auth_keycloak_url: "{{ rhbk_url }}"
+                token: "{{ _rhbk_auth_response.json.access_token }}"
+                validate_certs: "{{ rhbk_validate_certs }}"
+                parent_id: "{{ rhbk_realm_name }}"
+                state: present
+                config:
+                  kc_user_profile_config:
+                    - attributes:
+                        - name: username
+                          displayName: "${username}"
+                          validations:
+                            length:
+                              min: 3
+                              max: 255
+                            username_prohibited_characters: {}
+                            up_username_not_idn_homograph: {}
+                          permissions:
+                            view:
+                              - admin
+                              - user
+                            edit:
+                              - admin
+                              # - user # Default is to allow users to edit their own username
+                          multivalued: false
+                        - name: email
+                          displayName: "${email}"
+                          validations:
+                            email: {}
+                            length:
+                              max: 255
+                          required:
+                            roles:
+                              - user
+                          permissions:
+                            view:
+                              - admin
+                              - user
+                            edit:
+                              - admin
+                              # - user # Default is to allow users to edit their own email
+                          multivalued: false
+                        - name: firstName
+                          displayName: "${firstName}"
+                          validations:
+                            length:
+                              max: 255
+                            person_name_prohibited_characters: {}
+                          required:
+                            roles:
+                              - user
+                          permissions:
+                            view:
+                              - admin
+                              - user
+                            edit:
+                              - admin
+                              # - user # Default is to allow users to edit their own first name
+                          multivalued: false
+                        - name: lastName
+                          displayName: "${lastName}"
+                          validations:
+                            length:
+                              max: 255
+                            person_name_prohibited_characters: {}
+                          required:
+                            roles:
+                              - user
+                          permissions:
+                            view:
+                              - admin
+                              - user
+                            edit:
+                              - admin
+                              # - user # Default is to allow users to edit their own last name
+                          multivalued: false
+                        - name: organization
+                          displayName: "Organization"
+                          group: custom-attributes
+                          validations:
+                            length:
+                              max: 255
+                          permissions:
+                            view:
+                              - admin
+                              - user
+                            edit:
+                              - admin
+                          multivalued: false
+                        - name: admin_orgs
+                          displayName: "Admin Organizations"
+                          group: custom-attributes
+                          permissions:
+                            view:
+                              - admin
+                            edit:
+                              - admin
+                          multivalued: true
+                        - name: auditor_orgs
+                          displayName: "Auditor Organizations"
+                          group: custom-attributes
+                          permissions:
+                            view:
+                              - admin
+                            edit:
+                              - admin
+                          multivalued: true
+                      groups:
+                        - name: user-metadata
+                          displayHeader: User metadata
+                          displayDescription: Attributes, which refer to user metadata
+                        - name: custom-attributes
+                          displayHeader: Custom Attributes
+                          displayDescription: Custom attributes for AAP integration
+
+            - name: Create AAP OIDC client in RHBK
+              when: rhbk_oidc_client_enabled | bool
+              redhat.rhbk.rhbk_client:
+                auth_rhbk_url: "{{ rhbk_url }}"
+                token: "{{ _rhbk_auth_response.json.access_token }}"
+                validate_certs: "{{ rhbk_validate_certs }}"
+                realm: "{{ rhbk_realm_name }}"
+                client_id: "{{ rhbk_oidc_client_id }}"
+                name: "{{ rhbk_oidc_client_name }}"
+                description: "{{ rhbk_oidc_client_description }}"
+                secret: "{{ rhbk_oidc_client_secret | default(omit, true) }}"
+                client_authenticator_type: client-secret
+                public_client: false
+                protocol: openid-connect
+                standard_flow_enabled: true
+                direct_access_grants_enabled: true
+                attributes:
+                  user.info.response.signature.alg: RS256
+                  request.object.signature.alg: RS256
+                protocol_mappers:
+                  - name: family name
+                    protocol: openid-connect
+                    protocolMapper: oidc-usermodel-property-mapper
+                    consentRequired: false
+                    config:
+                      access.token.claim: "true"
+                      claim.name: "family_name"
+                      id.token.claim: "true"
+                      jsonType.label: String
+                      user.attribute: lastName
+                      userinfo.token.claim: "true"
+                  - name: email
+                    protocol: openid-connect
+                    protocolMapper: oidc-usermodel-property-mapper
+                    consentRequired: false
+                    config:
+                      userinfo.token.claim: "true"
+                      user.attribute: email
+                      id.token.claim: "true"
+                      access.token.claim: "true"
+                      claim.name: email
+                      jsonType.label: String
+                  - name: client roles
+                    protocol: openid-connect
+                    protocolMapper: oidc-usermodel-client-role-mapper
+                    consentRequired: false
+                    config:
+                      multivalued: "true"
+                      access.token.claim: "true"
+                      claim.name: "resource_access.${client_id}.roles"
+                      jsonType.label: String
+                  - name: given name
+                    protocol: openid-connect
+                    protocolMapper: oidc-usermodel-property-mapper
+                    consentRequired: false
+                    config:
+                      userinfo.token.claim: "true"
+                      user.attribute: firstName
+                      id.token.claim: "true"
+                      access.token.claim: "true"
+                      claim.name: given_name
+                      jsonType.label: String
+                  - name: full name
+                    protocol: openid-connect
+                    protocolMapper: oidc-full-name-mapper
+                    consentRequired: false
+                    config:
+                      id.token.claim: "true"
+                      access.token.claim: "true"
+                      userinfo.token.claim: "true"
+                  - name: username
+                    protocol: openid-connect
+                    protocolMapper: oidc-usermodel-property-mapper
+                    consentRequired: false
+                    config:
+                      userinfo.token.claim: "true"
+                      user.attribute: username
+                      id.token.claim: "true"
+                      access.token.claim: "true"
+                      claim.name: preferred_username
+                      jsonType.label: String
+                  - name: group
+                    protocol: openid-connect
+                    protocolMapper: oidc-group-membership-mapper
+                    consentRequired: false
+                    config:
+                      access.token.claim: "true"
+                      claim.name: "group"
+                      full.path: "false"
+                      id.token.claim: "true"
+                      userinfo.token.claim: "true"
+                  - name: organization
+                    protocol: openid-connect
+                    protocolMapper: oidc-usermodel-attribute-mapper
+                    consentRequired: false
+                    config:
+                      userinfo.token.claim: "true"
+                      user.attribute: organization
+                      id.token.claim: "true"
+                      access.token.claim: "true"
+                      claim.name: organization
+                      jsonType.label: String
+                  - name: admin_orgs
+                    protocol: openid-connect
+                    protocolMapper: oidc-usermodel-attribute-mapper
+                    consentRequired: false
+                    config:
+                      multivalued: "true"
+                      userinfo.token.claim: "true"
+                      user.attribute: admin_orgs
+                      id.token.claim: "true"
+                      access.token.claim: "true"
+                      claim.name: admin_orgs
+                      jsonType.label: String
+                  - name: auditor_orgs
+                    protocol: openid-connect
+                    protocolMapper: oidc-usermodel-attribute-mapper
+                    consentRequired: false
+                    config:
+                      multivalued: "true"
+                      userinfo.token.claim: "true"
+                      user.attribute: auditor_orgs
+                      id.token.claim: "true"
+                      access.token.claim: "true"
+                      claim.name: auditor_orgs
+                      jsonType.label: String
+                  - name: client_roles
+                    protocol: openid-connect
+                    protocolMapper: oidc-usermodel-client-role-mapper
+                    config:
+                      multivalued: "true"
+                      id.token.claim: "true"
+                      access.token.claim: "true"
+                      userinfo.token.claim: "true"
+                      usermodel.clientRoleMapping.clientId: "{{ rhbk_oidc_client_id }}"
+                      claim.name: client_roles
+                      jsonType.label: String
+                  - name: audience mapper
+                    protocol: openid-connect
+                    protocolMapper: oidc-audience-mapper
+                    config:
+                      id.token.claim: "true"
+                      access.token.claim: "true"
+                      included.client.audience: "{{ rhbk_oidc_client_id }}"
+                state: present
+
+            - name: Create AAP OIDC client roles in RHBK
+              when: (rhbk_oidc_client_enabled | bool) and (rhbk_oidc_client_roles | length > 0)
+              redhat.rhbk.rhbk_role:
+                auth_rhbk_url: "{{ rhbk_url }}"
+                token: "{{ _rhbk_auth_response.json.access_token }}"
+                validate_certs: "{{ rhbk_validate_certs }}"
+                realm: "{{ rhbk_realm_name }}"
+                client_id: "{{ rhbk_oidc_client_id }}"
+                name: "{{ item.name }}"
+                description: "{{ item.description | default(omit) }}"
+                state: present
+              loop: "{{ rhbk_oidc_client_roles }}"
+              loop_control:
+                label: "RHBK OIDC Client Role: {{ item.name }}"
+
+            - name: Create AAP SAML client in RHBK
+              when: rhbk_saml_client_enabled | bool
+              redhat.rhbk.rhbk_client:
+                auth_rhbk_url: "{{ rhbk_url }}"
+                token: "{{ _rhbk_auth_response.json.access_token }}"
+                validate_certs: "{{ rhbk_validate_certs }}"
+                realm: "{{ rhbk_realm_name }}"
+                client_id: "{{ rhbk_saml_client_id }}"
+                name: "{{ rhbk_saml_client_name }}"
+                description: "{{ rhbk_saml_client_description }}"
+                protocol: saml
+                standard_flow_enabled: true
+                redirect_uris: "{{ rhbk_saml_client_redirect_uris }}"
+                attributes:
+                  saml.authnstatement: "true"
+                  saml.server.signature: "true"
+                  saml.client.signature: "false"
+                  saml.signature.algorithm: RSA_SHA256
+                  saml.force.post.binding: "true"
+                  saml_name_id_format: username
+                  saml_force_name_id_format: "false"
+                protocol_mappers:
+                  - name: firstName
+                    protocol: saml
+                    protocolMapper: saml-user-property-mapper
+                    consentRequired: false
+                    config:
+                      attribute.nameformat: Basic
+                      user.attribute: firstName
+                      friendly.name: firstName
+                      attribute.name: first_name
+                  - name: lastName
+                    protocol: saml
+                    protocolMapper: saml-user-property-mapper
+                    consentRequired: false
+                    config:
+                      attribute.nameformat: Basic
+                      user.attribute: lastName
+                      friendly.name: lastName
+                      attribute.name: last_name
+                  - name: email
+                    protocol: saml
+                    protocolMapper: saml-user-property-mapper
+                    consentRequired: false
+                    config:
+                      attribute.nameformat: Basic
+                      user.attribute: email
+                      friendly.name: email
+                      attribute.name: email
+                  - name: username
+                    protocol: saml
+                    protocolMapper: saml-user-property-mapper
+                    consentRequired: false
+                    config:
+                      attribute.nameformat: Basic
+                      user.attribute: username
+                      friendly.name: username
+                      attribute.name: username
+                  - name: group
+                    protocol: saml
+                    protocolMapper: saml-group-membership-mapper
+                    consentRequired: false
+                    config:
+                      attribute.nameformat: Basic
+                      attribute.name: groups
+                      friendly.name: groups
+                      full.path: "false"
+                      single: "false"
+                  - name: organization
+                    protocol: saml
+                    protocolMapper: saml-user-attribute-mapper
+                    consentRequired: false
+                    config:
+                      attribute.nameformat: Basic
+                      user.attribute: organization
+                      friendly.name: organization
+                      attribute.name: organization
+                  - name: admin_orgs
+                    protocol: saml
+                    protocolMapper: saml-user-attribute-mapper
+                    consentRequired: false
+                    config:
+                      attribute.nameformat: Basic
+                      user.attribute: admin_orgs
+                      friendly.name: admin_orgs
+                      attribute.name: admin_orgs
+                  - name: auditor_orgs
+                    protocol: saml
+                    protocolMapper: saml-user-attribute-mapper
+                    consentRequired: false
+                    config:
+                      attribute.nameformat: Basic
+                      user.attribute: auditor_orgs
+                      friendly.name: auditor_orgs
+                      attribute.name: auditor_orgs
+                state: present
+
+            - name: Update realm role_list scope to use single role attribute
+              when: rhbk_saml_client_enabled | bool
+              block:
+                - name: Get realm-level role_list client scope
+                  ansible.builtin.uri:
+                    url: "{{ rhbk_url }}/admin/realms/{{ rhbk_realm_name }}/client-scopes"
+                    method: GET
+                    headers:
+                      Authorization: "Bearer {{ _rhbk_auth_response.json.access_token }}"
+                    validate_certs: "{{ rhbk_validate_certs }}"
+                  register: _rhbk_client_scopes
+
+                - name: Find role_list scope ID
+                  ansible.builtin.set_fact:
+                    _rhbk_role_list_scope_id: >-
+                      {{ _rhbk_client_scopes.json
+                         | selectattr('name', 'equalto', 'role_list')
+                         | map(attribute='id')
+                         | first }}
+
+                - name: Get protocol mappers for role_list scope
+                  ansible.builtin.uri:
+                    url: "{{ rhbk_url }}/admin/realms/{{ rhbk_realm_name }}/client-scopes/{{ _rhbk_role_list_scope_id }}/protocol-mappers/models"
+                    method: GET
+                    headers:
+                      Authorization: "Bearer {{ _rhbk_auth_response.json.access_token }}"
+                    validate_certs: "{{ rhbk_validate_certs }}"
+                  register: _rhbk_role_list_mappers
+
+                - name: Find role list mapper
+                  ansible.builtin.set_fact:
+                    _rhbk_role_list_mapper: >-
+                      {{ _rhbk_role_list_mappers.json
+                         | selectattr('protocolMapper', 'equalto', 'saml-role-list-mapper')
+                         | first }}
+
+                - name: Set single role attribute on realm role_list mapper
+                  ansible.builtin.uri:
+                    url: "{{ rhbk_url }}/admin/realms/{{ rhbk_realm_name }}/client-scopes/{{ _rhbk_role_list_scope_id }}/protocol-mappers/models/{{ _rhbk_role_list_mapper.id }}"
+                    method: PUT
+                    headers:
+                      Authorization: "Bearer {{ _rhbk_auth_response.json.access_token }}"
+                    validate_certs: "{{ rhbk_validate_certs }}"
+                    body_format: json
+                    body: >-
+                      {{ _rhbk_role_list_mapper | combine({
+                        'config': _rhbk_role_list_mapper.config | combine({'single': 'true'})
+                      }) }}
+                    status_code: 204
+                  changed_when: _rhbk_role_list_mapper.config.single != "true"
+
+            - name: Create AAP SAML client roles in RHBK
+              when: (rhbk_saml_client_enabled | bool) and (rhbk_saml_client_roles | length > 0)
+              redhat.rhbk.rhbk_role:
+                auth_rhbk_url: "{{ rhbk_url }}"
+                token: "{{ _rhbk_auth_response.json.access_token }}"
+                validate_certs: "{{ rhbk_validate_certs }}"
+                realm: "{{ rhbk_realm_name }}"
+                client_id: "{{ rhbk_saml_client_id }}"
+                name: "{{ item.name }}"
+                description: "{{ item.description | default(omit) }}"
+                state: present
+              loop: "{{ rhbk_saml_client_roles }}"
+              loop_control:
+                label: "RHBK SAML Client Role: {{ item.name }}"
+
+            - name: Create RHBK groups
+              when: rhbk_groups | length > 0
+              community.general.keycloak_group:
+                auth_keycloak_url: "{{ rhbk_url }}"
+                token: "{{ _rhbk_auth_response.json.access_token }}"
+                validate_certs: "{{ rhbk_validate_certs }}"
+                realm: "{{ rhbk_realm_name }}"
+                name: "{{ item.name }}"
+                attributes: "{{ item.attributes | default(omit) }}"
+                state: present
+              loop: "{{ rhbk_groups }}"
+              loop_control:
+                label: "RHBK Group: {{ item.name }}"
+
+            - name: Manage RHBK users
+              when: rhbk_users | length > 0
+              block:
+                - name: Get existing RHBK realm users
+                  ansible.builtin.uri:
+                    url: "{{ rhbk_url }}/admin/realms/{{ rhbk_realm_name }}/users?max=1000"
+                    method: GET
+                    headers:
+                      Authorization: "Bearer {{ _rhbk_auth_response.json.access_token }}"
+                    validate_certs: "{{ rhbk_validate_certs }}"
+                  register: _rhbk_existing_users_raw
+                  changed_when: false
+
+                - name: Build existing users lookup
+                  ansible.builtin.set_fact:
+                    _rhbk_existing_users: >-
+                      {{ dict(_rhbk_existing_users_raw.json
+                         | map(attribute='username')
+                         | zip(_rhbk_existing_users_raw.json)) }}
+
+                - name: Create new RHBK users
+                  community.general.keycloak_user:
+                    auth_keycloak_url: "{{ rhbk_url }}"
+                    token: "{{ _rhbk_auth_response.json.access_token }}"
+                    validate_certs: "{{ rhbk_validate_certs }}"
+                    realm: "{{ rhbk_realm_name }}"
+                    username: "{{ item.username }}"
+                    first_name: "{{ item.first_name | default(omit) }}"
+                    last_name: "{{ item.last_name | default(omit) }}"
+                    email: "{{ item.email | default(omit) }}"
+                    enabled: "{{ item.enabled | default(true) }}"
+                    email_verified: true
+                    attributes:
+                      - name: organization
+                        values:
+                          - "{{ item.organization }}"
+                        state: present
+                      - name: admin_orgs
+                        values: "{{ item.admin_orgs | default([]) }}"
+                        state: present
+                      - name: auditor_orgs
+                        values: "{{ item.auditor_orgs | default([]) }}"
+                        state: present
+                    groups: >-
+                      {{ item.groups | default([]) |
+                         map('community.general.dict_kv', 'name') |
+                         list }}
+                    credentials:
+                      - type: password
+                        value: "{{ item.password | default(rhbk_user_default_password) }}"
+                        temporary: "{{ item.password_temporary | default(rhbk_user_password_temporary) }}"
+                    state: present
+                  when: item.username not in _rhbk_existing_users
+                  loop: "{{ rhbk_users }}"
+                  loop_control:
+                    label: "RHBK User: {{ item.username }}"
+                  no_log: true
+
+                - name: Update existing RHBK user details
+                  ansible.builtin.uri:
+                    url: "{{ rhbk_url }}/admin/realms/{{ rhbk_realm_name }}/users/{{ _existing.id }}"
+                    method: PUT
+                    headers:
+                      Authorization: "Bearer {{ _rhbk_auth_response.json.access_token }}"
+                    validate_certs: "{{ rhbk_validate_certs }}"
+                    body_format: json
+                    body: >-
+                      {{ _existing | combine({
+                        'firstName': item.first_name | default(''),
+                        'lastName': item.last_name | default(''),
+                        'email': item.email | default(''),
+                        'enabled': item.enabled | default(true),
+                        'emailVerified': true,
+                        'attributes': (_existing.attributes | default({})) | combine({
+                          'organization': [item.organization],
+                          'admin_orgs': item.admin_orgs | default([]),
+                          'auditor_orgs': item.auditor_orgs | default([])
+                        })
+                      }) }}
+                    status_code: 204
+                  vars:
+                    _existing: "{{ _rhbk_existing_users[item.username] }}"
+                    _needs_update: >-
+                      {{ _existing.firstName | default('') != item.first_name | default('') or
+                         _existing.lastName | default('') != item.last_name | default('') or
+                         _existing.email | default('') != item.email | default('') or
+                         _existing.emailVerified | default(false) != true or
+                         (_existing.attributes | default({})).get('organization', [''])[0] != item.organization or
+                         (_existing.attributes | default({})).get('admin_orgs', []) != item.admin_orgs | default([]) or
+                         (_existing.attributes | default({})).get('auditor_orgs', []) != item.auditor_orgs | default([]) }}
+                  when:
+                    - item.username in _rhbk_existing_users
+                    - _needs_update | bool
+                  changed_when: _needs_update | bool
+                  loop: "{{ rhbk_users }}"
+                  loop_control:
+                    label: "RHBK User Update: {{ item.username }}"
+
+                - name: Get RHBK realm groups for ID lookup
+                  ansible.builtin.uri:
+                    url: "{{ rhbk_url }}/admin/realms/{{ rhbk_realm_name }}/groups?max=1000"
+                    method: GET
+                    headers:
+                      Authorization: "Bearer {{ _rhbk_auth_response.json.access_token }}"
+                    validate_certs: "{{ rhbk_validate_certs }}"
+                  register: _rhbk_realm_groups
+                  changed_when: false
+
+                - name: Build group ID lookup
+                  ansible.builtin.set_fact:
+                    _rhbk_group_ids: >-
+                      {{ dict(_rhbk_realm_groups.json
+                         | map(attribute='name')
+                         | zip(_rhbk_realm_groups.json
+                               | map(attribute='id'))) }}
+
+                - name: Get existing RHBK user group memberships
+                  ansible.builtin.uri:
+                    url: "{{ rhbk_url }}/admin/realms/{{ rhbk_realm_name }}/users/{{ _rhbk_existing_users[item.username].id }}/groups"
+                    method: GET
+                    headers:
+                      Authorization: "Bearer {{ _rhbk_auth_response.json.access_token }}"
+                    validate_certs: "{{ rhbk_validate_certs }}"
+                  when: item.username in _rhbk_existing_users
+                  loop: "{{ rhbk_users }}"
+                  loop_control:
+                    label: "RHBK User Groups: {{ item.username }}"
+                  register: _rhbk_user_groups_raw
+                  changed_when: false
+
+                - name: Build user group memberships lookup
+                  ansible.builtin.set_fact:
+                    _rhbk_user_group_names: >-
+                      {{ dict(_rhbk_user_groups_raw.results
+                         | selectattr('json', 'defined')
+                         | map(attribute='item.username')
+                         | zip(_rhbk_user_groups_raw.results
+                               | selectattr('json', 'defined')
+                               | map(attribute='json')
+                               | map('map', attribute='name')
+                               | map('list'))) }}
+
+                - name: Add RHBK users to missing groups
+                  ansible.builtin.uri:
+                    url: "{{ rhbk_url }}/admin/realms/{{ rhbk_realm_name }}/users/{{ _rhbk_existing_users[item.0.username].id }}/groups/{{ _rhbk_group_ids[item.1] }}"
+                    method: PUT
+                    headers:
+                      Authorization: "Bearer {{ _rhbk_auth_response.json.access_token }}"
+                    validate_certs: "{{ rhbk_validate_certs }}"
+                    body_format: json
+                    body: {}
+                    status_code: 204
+                  when:
+                    - item.0.username in _rhbk_existing_users
+                    - item.1 not in (_rhbk_user_group_names[item.0.username] | default([]))
+                  loop: "{{ rhbk_users | subelements('groups', skip_missing=true) }}"
+                  loop_control:
+                    label: "{{ item.0.username }} -> {{ item.1 }}"
+
+      always:
+        - name: If login succeeded revoke OpenShift API token
+          when: pre_tasks_auth_results['openshift_auth']['api_key'] is defined and aap_ocp_install_connection['api_key'] is not defined
+          redhat.openshift.openshift_auth:
+            host: "{{ aap_ocp_install_connection['host'] | mandatory }}"
+            validate_certs: "{{ aap_ocp_install_connection['validate_certs'] | default(omit) }}"
+            state: absent
+            api_key: "{{ pre_tasks_auth_results['openshift_auth']['api_key'] }}"
+          changed_when: false

@@ -1,7 +1,7 @@
 ---
-aap_organizations:
-  - name: Finance
-    description: Finance Department
+controller_organizations:
+  - name: Engineering
+    description: Engineering Department
     max_hosts: 25
   - name: IT
     description: Information Technology Department

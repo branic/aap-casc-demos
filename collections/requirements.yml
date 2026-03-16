@@ -1,14 +1,27 @@
 ---
 collections:
-  - name: infra.aap_configuration
-
   - name: infra.aap_utilities
+    version: ">=2.6.1"
 
   - name: infra.controller_configuration
     version: ">=3.0.0"
 
-  # - name: ansible.posix
-  #   version: 1.4.0
+  - name: kubernetes.core
+    version: ">=2.2.0"
+
+  - name: redhat.openshift
+    version: ">=4.0.2"
+
+  - name: ansible.posix
+    version: ">=1.4.0"
+
+  - name: community.crypto
+    version: ">=2.0.0"
+
+  - name: community.general
+    version: ">=10.0.0"
+
+  - name: redhat.rhbk
 
   # - name: ansible.scm
   #   version: 2.0.0
