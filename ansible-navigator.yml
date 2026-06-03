@@ -11,6 +11,9 @@ ansible-navigator:
 
   execution-environment:
     container-engine: podman
-    enabled: false
+    enabled: true
+    image: quay.io/branic/development-ee:latest
+    pull:
+      policy: missing
 
   mode: stdout

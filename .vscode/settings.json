@@ -6,6 +6,10 @@
         ".yamllint.yml": "yaml",
         "devfile.yaml": "yaml",
         "**/.github/**/*.yml": "yaml"
-      },
+    },
+    "ansible.executionEnvironment.enabled": true,
+    "ansible.executionEnvironment.image": "quay.io/branic/development-ee:latest",
+    "ansible.mcpServer.enabled": true,
+    "python-envs.pythonProjects": [],
 
 }
