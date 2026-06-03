@@ -1,0 +1,137 @@
+---
+- name: Install AAP on OCP playbook
+  hosts: localhost
+  gather_facts: false
+
+  pre_tasks:
+    - name: OpenShift Pre-tasks (Block)
+      block:
+        - name: Get OpenShift API token
+          redhat.openshift.openshift_auth:
+            host: "{{ aap_ocp_install_connection['host'] | mandatory }}"
+            username: "{{ aap_ocp_install_connection['username'] | mandatory }}"
+            password: "{{ aap_ocp_install_connection['password'] | mandatory }}"
+            validate_certs: "{{ aap_ocp_install_connection['validate_certs'] | default(omit) }}"
+          register: pre_tasks_auth_results
+          when: aap_ocp_install_connection['api_key'] is not defined
+
+        - name: Set authentication for provided API key
+          ansible.builtin.set_fact:
+            pre_tasks_auth_results:
+              openshift_auth:
+                host: "{{ aap_ocp_install_connection['host'] | mandatory }}"
+                api_key: "{{ aap_ocp_install_connection['api_key'] | mandatory }}"
+                validate_certs: "{{ aap_ocp_install_connection['validate_certs'] | default(omit) }}"
+          when: aap_ocp_install_connection['api_key'] is defined
+
+        - name: OCP object creation (Block)
+          environment:
+            K8S_AUTH_HOST: "{{ pre_tasks_auth_results['openshift_auth']['host'] }}"
+            K8S_AUTH_API_KEY: "{{ pre_tasks_auth_results['openshift_auth']['api_key'] }}"
+            K8S_AUTH_VERIFY_SSL: "{{ aap_ocp_install_connection['validate_certs'] | default(omit) }}"
+          block:
+            - name: Create AAP namespaces
+              kubernetes.core.k8s:
+                state: present
+                resource_definition:
+                  apiVersion: v1
+                  kind: Namespace
+                  metadata:
+                    name: "{{ item }}"
+              loop: "{{ [aap_ocp_install_controller['namespace'] | default(aap_ocp_install_namespace), aap_ocp_install_hub['namespace'] | default(aap_ocp_install_namespace)] | unique | list }}"
+              loop_control:
+                label: "Namespace: {{ item }}"
+
+            - name: Create Resource Quotas
+              when:
+                - aap_namespace_quotas is defined
+                - aap_namespace_quotas.enabled | default(false) | bool
+              kubernetes.core.k8s:
+                state: present
+                resource_definition:
+                  apiVersion: v1
+                  kind: ResourceQuota
+                  metadata:
+                    name: "{{ aap_namespace_quotas['name'] | default('aap') }}"
+                    namespace: "{{ item }}"
+                  spec:
+                    "{{ aap_namespace_quotas['spec'] }}"
+              loop: "{{ [aap_ocp_install_controller['namespace'] | default(aap_ocp_install_namespace), aap_ocp_install_hub['namespace'] | default(aap_ocp_install_namespace)] | unique | list }}"
+              loop_control:
+                label: "Namespace: {{ item }}"
+
+            - name: Create Limit Ranges
+              when:
+                - aap_namespace_limit_ranges is defined
+                - aap_namespace_limit_ranges.enabled | default(false) | bool
+              kubernetes.core.k8s:
+                state: present
+                resource_definition:
+                  apiVersion: v1
+                  kind: LimitRange
+                  metadata:
+                    name: "{{ aap_namespace_limit_ranges['name'] | default('aap') }}"
+                    namespace: "{{ item }}"
+                  spec:
+                    "{{ aap_namespace_limit_ranges['spec'] }}"
+              loop: "{{ [aap_ocp_install_controller['namespace'] | default(aap_ocp_install_namespace), aap_ocp_install_hub['namespace'] | default(aap_ocp_install_namespace)] | unique | list }}"
+              loop_control:
+                label: "Namespace: {{ item }}"
+
+            - name: Create external db secrets
+              when: aap_ocp_external_db is defined
+              kubernetes.core.k8s:
+                state: present
+                resource_definition:
+                  apiVersion: v1
+                  kind: Secret
+                  metadata:
+                    name: "{{ item.value.secret_name }}"
+                    namespace: "{{ (lookup('vars', 'aap_ocp_install_' ~ item.key))['namespace'] | default(aap_ocp_install_namespace) }}"
+                  stringData:
+                    host: "{{ item.value.host }}"
+                    port: "{{ item.value.port | default('') | string }}"
+                    database: "{{ item.value.name }}"
+                    username: "{{ item.value.username }}"
+                    password: "{{ item.value.password }}"
+                    sslmode: "{{ item.value.sslmode }}"
+                    type: "unmanaged"
+                  type: Opaque
+                wait: true
+              loop: "{{ aap_ocp_external_db | dict2items | selectattr('value.enabled', 'defined') | selectattr('value.enabled') | list }}"
+              loop_control:
+                label: "External DB Secret: {{ item.value.secret_name }}"
+
+      always:
+        - name: If login succeeded revoke OpenShift API token
+          when: pre_tasks_auth_results['openshift_auth']['api_key'] is defined and aap_ocp_install_connection['api_key'] is not defined
+          redhat.openshift.openshift_auth:
+            host: "{{ aap_ocp_install_connection['host'] | mandatory }}"
+            validate_certs: "{{ aap_ocp_install_connection['validate_certs'] | default(omit) }}"
+            state: absent
+            api_key: "{{ pre_tasks_auth_results['openshift_auth']['api_key'] }}"
+          changed_when: false
+
+
+  roles:
+    - infra.aap_utilities.aap_ocp_install
+
+  post_tasks:
+    - name: Output AAP URLs
+      ansible.builtin.debug:
+        msg: >-
+          {{
+            ((aap_ocp_install_platform_route | default('')) | length > 0) |
+            ternary(
+              ['AAP Platform URL - ' ~ (aap_ocp_install_platform_route | default(''))],
+              (
+                ((aap_ocp_install_controller_route | default('')) | length > 0) |
+                ternary(['AAP Controller URL - ' ~ (aap_ocp_install_controller_route | default(''))], [])
+              ) +
+              (
+                ((aap_ocp_install_hub_route | default('')) | length > 0) |
+                ternary(['AAP Automation Hub URL - ' ~ (aap_ocp_install_hub_route | default(''))], [])
+              )
+            )
+          }}
+...
