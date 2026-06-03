@@ -215,6 +215,107 @@
                   type: Opaque
                 wait: true
 
+            - name: Deploy in-cluster PostgreSQL for RHBK (Block)
+              when: rhbk_deploy_in_cluster_db | bool
+              block:
+                - name: Set in-cluster PostgreSQL connection facts
+                  ansible.builtin.set_fact:
+                    rhbk_db_host: "rhbk-postgresql.{{ rhbk_namespace }}.svc.cluster.local"
+                    rhbk_db_port: 5432
+
+                - name: Create PostgreSQL PersistentVolumeClaim
+                  kubernetes.core.k8s:
+                    state: present
+                    resource_definition:
+                      apiVersion: v1
+                      kind: PersistentVolumeClaim
+                      metadata:
+                        name: rhbk-postgresql
+                        namespace: "{{ rhbk_namespace }}"
+                      spec:
+                        accessModes:
+                          - ReadWriteOnce
+                        resources:
+                          requests:
+                            storage: "{{ rhbk_in_cluster_db_storage_size }}"
+
+                - name: Create PostgreSQL Deployment
+                  kubernetes.core.k8s:
+                    state: present
+                    resource_definition:
+                      apiVersion: apps/v1
+                      kind: Deployment
+                      metadata:
+                        name: rhbk-postgresql
+                        namespace: "{{ rhbk_namespace }}"
+                      spec:
+                        replicas: 1
+                        selector:
+                          matchLabels:
+                            app: rhbk-postgresql
+                        template:
+                          metadata:
+                            labels:
+                              app: rhbk-postgresql
+                          spec:
+                            containers:
+                              - name: postgresql
+                                image: "{{ rhbk_in_cluster_db_image }}"
+                                env:
+                                  - name: POSTGRESQL_USER
+                                    valueFrom:
+                                      secretKeyRef:
+                                        name: "{{ rhbk_db_secret_name }}"
+                                        key: username
+                                  - name: POSTGRESQL_PASSWORD
+                                    valueFrom:
+                                      secretKeyRef:
+                                        name: "{{ rhbk_db_secret_name }}"
+                                        key: password
+                                  - name: POSTGRESQL_DATABASE
+                                    value: "{{ rhbk_db_name }}"
+                                ports:
+                                  - containerPort: 5432
+                                    protocol: TCP
+                                volumeMounts:
+                                  - name: postgresql-data
+                                    mountPath: /var/lib/pgsql/data
+                            volumes:
+                              - name: postgresql-data
+                                persistentVolumeClaim:
+                                  claimName: rhbk-postgresql
+
+                - name: Create PostgreSQL Service
+                  kubernetes.core.k8s:
+                    state: present
+                    resource_definition:
+                      apiVersion: v1
+                      kind: Service
+                      metadata:
+                        name: rhbk-postgresql
+                        namespace: "{{ rhbk_namespace }}"
+                      spec:
+                        selector:
+                          app: rhbk-postgresql
+                        ports:
+                          - port: 5432
+                            targetPort: 5432
+
+                - name: Wait for PostgreSQL to be ready
+                  kubernetes.core.k8s_info:
+                    kind: Deployment
+                    name: rhbk-postgresql
+                    namespace: "{{ rhbk_namespace }}"
+                    api_version: apps/v1
+                  register: rhbk_postgresql_status
+                  until:
+                    - rhbk_postgresql_status.resources | length > 0
+                    - rhbk_postgresql_status.resources[0].status is defined
+                    - rhbk_postgresql_status.resources[0].status.readyReplicas is defined
+                    - rhbk_postgresql_status.resources[0].status.readyReplicas >= 1
+                  retries: 30
+                  delay: 10
+
             - name: Create RHBK (Keycloak) instance
               kubernetes.core.k8s:
                 state: present

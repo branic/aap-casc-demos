@@ -20,6 +20,11 @@ rhbk_db_password:
 rhbk_db_host:
 rhbk_db_port:
 rhbk_db_name:
+# In-cluster PostgreSQL (for dev/local clusters — set rhbk_deploy_in_cluster_db: true to deploy
+# a PostgreSQL instance in the same namespace instead of using an external database)
+rhbk_deploy_in_cluster_db: false
+rhbk_in_cluster_db_image: "registry.redhat.io/rhel9/postgresql-16:latest"
+rhbk_in_cluster_db_storage_size: "1Gi"
 # RHBK realm configuration
 rhbk_realm_name: "aap"
 rhbk_realm_display_name: "Ansible Automation Platform"
