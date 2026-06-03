@@ -1,0 +1,23 @@
+---
+# aap_namespace_quotas:
+#   enabled: true
+#   name: aap
+#   spec:
+#     hard:
+#       requests.cpu: '32'
+#       requests.memory: "64Gi"
+#       limits.cpu: '32'
+#       limits.memory: "64Gi"
+
+# aap_namespace_limit_ranges:
+#   enabled: true
+#   name: aap
+#   spec:
+#     limits:
+#       - default:
+#           cpu: "256m"
+#           memory: "512Mi"
+#         defaultRequest:
+#           cpu: "256m"
+#           memory: "512Mi"
+#         type: Container
