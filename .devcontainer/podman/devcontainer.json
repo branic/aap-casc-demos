@@ -1,8 +1,8 @@
 {
-  "name": "ansible-dev-container-podman",
+  "name": "AAP-CasC-Demo-podman",
   // "image": "ghcr.io/ansible/community-ansible-dev-tools:latest",
-  // "image": "localhost/dev-ee:dev",
-  "image": "quay.io/branic/development-ee:latest",
+  // "image": "localhost/aap-24-dev-ee:dev",
+  "image": "quay.io/branic/aap-24-development-ee:latest",
   "containerUser": "root",
   "runArgs": [
     "--cap-add=SYS_ADMIN",
@@ -16,7 +16,7 @@
     "--security-opt",
     "apparmor=unconfined",
     "--userns=host",
-    "--hostname=ansible-dev-container",
+    "--hostname=aap-config-demo-container",
     "--volume",
     "ansible-dev-tools-container-storage:/var/lib/containers",
     "--net",
