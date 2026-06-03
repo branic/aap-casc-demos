@@ -1,0 +1,88 @@
+---
+# SAML Service Provider (SP) configuration
+saml_sp_entity_id: "{{ controller_hostname }}"
+# Set to true to auto-generate a self-signed SP certificate and key
+saml_sp_generate_cert: true
+# Provide these if saml_sp_generate_cert is false (store private key in vault)
+saml_sp_public_cert: ""
+saml_sp_private_key: ""
+
+# SAML Identity Provider (IdP) configuration
+saml_idp_name: "rhbk"
+# Set this to dynamically fetch IdP metadata; leave unset to use static values below
+saml_idp_metadata_url: "{{ rhbk_url }}/realms/{{ rhbk_realm_name }}/protocol/saml/descriptor"
+saml_idp_validate_certs: true
+# Static IdP values (used when saml_idp_metadata_url is not defined)
+saml_idp_entity_id: ""
+saml_idp_sso_url: ""
+saml_idp_certificate: ""
+
+# SAML attribute mappings (must match IdP protocol mapper attribute names)
+saml_idp_attr_user_permanent_id: "name_id"
+saml_idp_attr_first_name: "first_name"
+saml_idp_attr_last_name: "last_name"
+saml_idp_attr_username: "username"
+saml_idp_attr_email: "email"
+saml_idp_attr_groups: "groups"
+saml_idp_attr_organization: "organization"
+
+# SP organization info (all fields required by Controller API)
+saml_org_info:
+  en-US:
+    name: "AAP"
+    displayname: "Ansible Automation Platform"
+    url: "{{ controller_hostname }}"
+
+# SP contact information (all fields required by Controller API)
+saml_technical_contact:
+  givenName: "AAP Admin"
+  emailAddress: "admin@example.com"
+saml_support_contact:
+  givenName: "AAP Support"
+  emailAddress: "support@example.com"
+
+# SAML organization attribute mapping
+# Dynamically maps the SAML organization attribute to Controller organizations.
+# Organizations are auto-created on first login if they do not exist.
+# Org admin/auditor roles are driven by admin_orgs/auditor_orgs SAML attributes
+# sourced from Keycloak user attributes.
+saml_organization_attr:
+  saml_attr: "{{ saml_idp_attr_organization }}"
+  saml_admin_attr: "admin_orgs"
+  saml_auditor_attr: "auditor_orgs"
+  remove: true
+  remove_admins: true
+  remove_auditors: true
+
+# SAML organization mapping (static, username/email-based)
+saml_organization_map: {}
+
+# SAML team mapping (static, username/email-based)
+saml_team_map: {}
+
+# SAML user flags by attribute
+# Members of the aap-admins group become superusers;
+# members of the aap-auditors group become system auditors.
+saml_user_flags_by_attr:
+  is_superuser_attr: "{{ saml_idp_attr_groups }}"
+  is_superuser_value:
+    - "aap-admins"
+  remove_superusers: true
+  is_system_auditor_attr: "{{ saml_idp_attr_groups }}"
+  is_system_auditor_value:
+    - "aap-auditors"
+  remove_system_auditors: true
+
+# SAML group-to-team mapping
+# Each entry maps a SAML group value to a Controller team and organization.
+# Teams and organizations are auto-created on login via SOCIAL_AUTH_SAML_TEAM_ATTR.
+# Org admin/auditor roles are handled by SOCIAL_AUTH_SAML_ORGANIZATION_ATTR
+# (saml_admin_attr / saml_auditor_attr) rather than team-based role assignments.
+saml_group_team_map: []
+
+# Additional SAML attributes to store on the user object
+saml_extra_data: []
+
+# SAML security configuration
+saml_security_config:
+  requestedAuthnContext: false

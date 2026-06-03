@@ -1,0 +1,133 @@
+---
+- name: Configure SAML Authentication for AAP Controller
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Fetch SAML IdP metadata
+      when: saml_idp_metadata_url is defined
+      block:
+        - name: Retrieve SAML descriptor from IdP
+          ansible.builtin.uri:
+            url: "{{ saml_idp_metadata_url }}"
+            return_content: true
+            validate_certs: "{{ saml_idp_validate_certs }}"
+          register: _saml_metadata_response
+
+        - name: Set IdP facts from metadata
+          ansible.builtin.set_fact:
+            _saml_idp_entity_id: >-
+              {{ _saml_metadata_response.content
+                 | regex_search('entityID="([^"]+)"', '\1')
+                 | first }}
+            _saml_idp_sso_url: >-
+              {{ _saml_metadata_response.content
+                 | regex_search('SingleSignOnService[^>]*?Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"[^>]*?Location="([^"]+)"', '\1')
+                 | default(_saml_metadata_response.content
+                   | regex_search('SingleSignOnService[^>]*?Location="([^"]+)"[^>]*?Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"', '\1'),
+                   true)
+                 | first }}
+            _saml_idp_certificate: >-
+              {{ _saml_metadata_response.content
+                 | regex_search('X509Certificate>([^<]+)</', '\1')
+                 | first
+                 | trim }}
+
+    - name: Set IdP facts from static variables
+      when: saml_idp_metadata_url is not defined
+      ansible.builtin.set_fact:
+        _saml_idp_entity_id: "{{ saml_idp_entity_id }}"
+        _saml_idp_sso_url: "{{ saml_idp_sso_url }}"
+        _saml_idp_certificate: "{{ saml_idp_certificate }}"
+
+    - name: Generate SAML SP certificate and key
+      when: saml_sp_generate_cert | default(false) | bool
+      no_log: true
+      block:
+        - name: Generate SP private key
+          community.crypto.openssl_privatekey_pipe:
+            type: RSA
+            size: 2048
+          register: _saml_sp_generated_key
+
+        - name: Generate SP certificate signing request
+          community.crypto.openssl_csr_pipe:
+            privatekey_content: "{{ _saml_sp_generated_key.privatekey }}"
+            common_name: "AAP Controller SAML SP"
+            subject_alt_name:
+              - "URI:{{ saml_sp_entity_id }}"
+          register: _saml_sp_generated_csr
+
+        - name: Generate SP self-signed certificate
+          community.crypto.x509_certificate_pipe:
+            privatekey_content: "{{ _saml_sp_generated_key.privatekey }}"
+            csr_content: "{{ _saml_sp_generated_csr.csr }}"
+            provider: selfsigned
+            selfsigned_not_after: "+3650d"
+          register: _saml_sp_generated_cert
+
+        - name: Set SP certificate and key facts
+          ansible.builtin.set_fact:
+            _saml_sp_public_cert: "{{ _saml_sp_generated_cert.certificate }}"
+            _saml_sp_private_key: "{{ _saml_sp_generated_key.privatekey }}"
+
+    - name: Set SP certificate and key from provided variables
+      when: not (saml_sp_generate_cert | default(false) | bool)
+      ansible.builtin.set_fact:
+        _saml_sp_public_cert: "{{ saml_sp_public_cert }}"
+        _saml_sp_private_key: "{{ saml_sp_private_key }}"
+      no_log: true
+
+    - name: Build SAML enabled IdPs configuration
+      ansible.builtin.set_fact:
+        _saml_enabled_idps: >-
+          {{ {saml_idp_name: {
+            'url': _saml_idp_sso_url,
+            'x509cert': _saml_idp_certificate,
+            'entity_id': _saml_idp_entity_id,
+            'attr_user_permanent_id': saml_idp_attr_user_permanent_id,
+            'attr_first_name': saml_idp_attr_first_name,
+            'attr_last_name': saml_idp_attr_last_name,
+            'attr_username': saml_idp_attr_username,
+            'attr_email': saml_idp_attr_email
+          }} }}
+
+    - name: Build SAML team attribute mapping from group definitions
+      ansible.builtin.set_fact:
+        _saml_team_org_map: >-
+          {{ (_saml_team_org_map | default([])) +
+             [{'team': item.group,
+               'team_alias': item.team,
+               'organization': item.organization}] }}
+      loop: "{{ saml_group_team_map | default([]) }}"
+      loop_control:
+        label: "{{ item.group }}"
+
+    - name: Set SAML team attribute configuration
+      ansible.builtin.set_fact:
+        _saml_team_attr:
+          saml_attr: "{{ saml_idp_attr_groups }}"
+          remove: true
+          team_org_map: "{{ _saml_team_org_map | default([]) }}"
+
+    - name: Configure SAML authentication settings on Controller
+      ansible.builtin.import_role:
+        name: infra.controller_configuration.settings
+      vars:
+        controller_configuration_settings_secure_logging: false
+        controller_settings:
+          settings:
+            SOCIAL_AUTH_SAML_SP_ENTITY_ID: "{{ saml_sp_entity_id }}"
+            SOCIAL_AUTH_SAML_SP_PUBLIC_CERT: "{{ _saml_sp_public_cert }}"
+            SOCIAL_AUTH_SAML_SP_PRIVATE_KEY: "{{ _saml_sp_private_key }}"
+            SOCIAL_AUTH_SAML_ORG_INFO: "{{ saml_org_info }}"
+            SOCIAL_AUTH_SAML_TECHNICAL_CONTACT: "{{ saml_technical_contact }}"
+            SOCIAL_AUTH_SAML_SUPPORT_CONTACT: "{{ saml_support_contact }}"
+            SOCIAL_AUTH_SAML_ENABLED_IDPS: "{{ _saml_enabled_idps }}"
+            SOCIAL_AUTH_SAML_ORGANIZATION_MAP: "{{ saml_organization_map }}"
+            SOCIAL_AUTH_SAML_ORGANIZATION_ATTR: "{{ saml_organization_attr }}"
+            SOCIAL_AUTH_SAML_TEAM_MAP: "{{ saml_team_map }}"
+            SOCIAL_AUTH_SAML_TEAM_ATTR: "{{ _saml_team_attr }}"
+            SOCIAL_AUTH_SAML_USER_FLAGS_BY_ATTR: "{{ saml_user_flags_by_attr }}"
+            SOCIAL_AUTH_SAML_SECURITY_CONFIG: "{{ saml_security_config }}"
+            SOCIAL_AUTH_SAML_EXTRA_DATA: "{{ saml_extra_data }}"
