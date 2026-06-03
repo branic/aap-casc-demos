@@ -1,6 +1,6 @@
 # AAP Configuration Demos
 
-These are basic playbooks to installand configure AAP for demonstation purposes.
+These are basic playbooks to install and configure AAP for demonstration purposes.
 
 The content is provided *as-is*.
 
