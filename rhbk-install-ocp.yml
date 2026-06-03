@@ -1,0 +1,308 @@
+---
+- name: Install and configure RHBK on OCP playbook
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Install and configure Red Hat Build of Keycloak (Block)
+      block:
+        - name: Get OpenShift API token
+          redhat.openshift.openshift_auth:
+            host: "{{ aap_ocp_install_connection['host'] | mandatory }}"
+            username: "{{ aap_ocp_install_connection['username'] | mandatory }}"
+            password: "{{ aap_ocp_install_connection['password'] | mandatory }}"
+            validate_certs: "{{ aap_ocp_install_connection['validate_certs'] | default(omit) }}"
+          register: pre_tasks_auth_results
+          when: aap_ocp_install_connection['api_key'] is not defined
+
+        - name: Set authentication for provided API key
+          ansible.builtin.set_fact:
+            pre_tasks_auth_results:
+              openshift_auth:
+                host: "{{ aap_ocp_install_connection['host'] | mandatory }}"
+                api_key: "{{ aap_ocp_install_connection['api_key'] | mandatory }}"
+                validate_certs: "{{ aap_ocp_install_connection['validate_certs'] | default(omit) }}"
+          when: aap_ocp_install_connection['api_key'] is defined
+
+        - name: OCP object creation (Block)
+          environment:
+            K8S_AUTH_HOST: "{{ pre_tasks_auth_results['openshift_auth']['host'] }}"
+            K8S_AUTH_API_KEY: "{{ pre_tasks_auth_results['openshift_auth']['api_key'] }}"
+            K8S_AUTH_VERIFY_SSL: "{{ aap_ocp_install_connection['validate_certs'] | default(omit) }}"
+          block:
+            - name: Create RHBK namespace
+              kubernetes.core.k8s:
+                state: present
+                resource_definition:
+                  apiVersion: v1
+                  kind: Namespace
+                  metadata:
+                    name: "{{ rhbk_namespace }}"
+
+            - name: Create RHBK Operator Group
+              kubernetes.core.k8s:
+                state: present
+                resource_definition:
+                  apiVersion: operators.coreos.com/v1
+                  kind: OperatorGroup
+                  metadata:
+                    name: rhbk-operator
+                    namespace: "{{ rhbk_namespace }}"
+                  spec:
+                    targetNamespaces:
+                      - "{{ rhbk_namespace }}"
+
+            - name: Create RHBK Operator Subscription
+              kubernetes.core.k8s:
+                state: present
+                resource_definition:
+                  apiVersion: operators.coreos.com/v1alpha1
+                  kind: Subscription
+                  metadata:
+                    name: rhbk-operator
+                    namespace: "{{ rhbk_namespace }}"
+                  spec:
+                    channel: "{{ rhbk_channel }}"
+                    installPlanApproval: "{{ rhbk_operator_approval | default('Automatic') }}"
+                    name: rhbk-operator
+                    source: redhat-operators
+                    sourceNamespace: openshift-marketplace
+
+            - name: Wait for operator installplan to appear
+              kubernetes.core.k8s_info:
+                kind: Subscription
+                name: rhbk-operator
+                api_version: operators.coreos.com/v1alpha1
+                namespace: "{{ rhbk_namespace }}"
+              register: rhbk_installplan_result
+              until:
+                - rhbk_installplan_result is defined
+                - ('resources' in rhbk_installplan_result)
+                - rhbk_installplan_result.resources | length > 0
+                - ('status' in rhbk_installplan_result.resources[0])
+                - ('installplan' in rhbk_installplan_result.resources[0].status)
+              retries: 60  # Wait for 15 minutes (60*15/60)
+              delay: 15
+
+            - name: Update install plan
+              when: (rhbk_operator_approval | default('Automatic') | lower) == 'manual'
+              kubernetes.core.k8s:
+                definition:
+                  kind: InstallPlan
+                  apiVersion: operators.coreos.com/v1alpha1
+                  metadata:
+                    namespace: "{{ rhbk_namespace }}"
+                    name: "{{ rhbk_installplan_result.resources[0].status.installplan.name }}"
+                  spec:
+                    approved: true
+
+            - name: Retrieve Installed CSV
+              kubernetes.core.k8s_info:
+                kind: Subscription
+                name: rhbk-operator
+                api_version: operators.coreos.com/v1alpha1
+                namespace: "{{ rhbk_namespace }}"
+              register: rhbk_install_sub_approved_result
+              retries: 60  # Wait for 15 minutes (60*15/60)
+              delay: 15
+              until:
+                - rhbk_install_sub_approved_result.resources[0].status.currentCSV is defined
+                - rhbk_install_sub_approved_result.resources[0].status.currentCSV | length > 0
+
+            - name: Wait for Operator CSV to be Successful
+              kubernetes.core.k8s_info:
+                kind: ClusterServiceVersion
+                name: "{{ rhbk_install_sub_approved_result.resources[0].status.currentCSV }}"
+                api_version: operators.coreos.com/v1alpha1
+                namespace: "{{ rhbk_namespace }}"
+              register: rhbk_install_csv_result
+              until:
+                - rhbk_install_csv_result.resources[0].status.phase is defined
+                - rhbk_install_csv_result.resources[0].status.phase | length > 0
+                - rhbk_install_csv_result.resources[0].status.phase == "Succeeded"
+              retries: 60  # Wait for 15 minutes (60*15/60)
+              delay: 15
+
+            - name: Check if TLS secret already exists
+              kubernetes.core.k8s_info:
+                kind: Secret
+                name: "{{ rhbk_tls_secret_name }}"
+                namespace: "{{ rhbk_namespace }}"
+                api_version: v1
+              register: rhbk_tls_secret_check
+
+            - name: Create TLS certificate and secret (Block)
+              when: (rhbk_tls_secret_check.resources | length == 0) or (rhbk_tls_force_replace | bool)
+              block:
+                - name: Gather minimal facts for timestamp
+                  ansible.builtin.setup:
+                    gather_subset:
+                      - '!all'
+                      - '!min'
+                      - 'date_time'
+
+                - name: Generate TLS private key
+                  community.crypto.openssl_privatekey:
+                    path: "/tmp/rhbk-tls-{{ ansible_date_time.epoch }}.key"
+                    size: "{{ rhbk_tls_key_size }}"
+                    type: RSA
+                    return_content: true
+                  register: rhbk_tls_private_key
+                  no_log: true
+
+                - name: Generate TLS certificate signing request (CSR)
+                  community.crypto.openssl_csr:
+                    path: "/tmp/rhbk-tls-{{ ansible_date_time.epoch }}.csr"
+                    privatekey_path: "{{ rhbk_tls_private_key.filename }}"
+                    common_name: "{{ rhbk_tls_common_name }}"
+                    organization_name: "{{ rhbk_tls_organization }}"
+                    organizational_unit_name: "{{ rhbk_tls_organizational_unit }}"
+                    subject_alt_name:
+                      - "DNS:{{ rhbk_tls_common_name }}"
+                      - "DNS:*.{{ rhbk_namespace }}.svc"
+                      - "DNS:*.{{ rhbk_namespace }}.svc.cluster.local"
+                    return_content: true
+                  register: rhbk_tls_csr
+
+                - name: Generate self-signed TLS certificate
+                  community.crypto.x509_certificate:
+                    path: "/tmp/rhbk-tls-{{ ansible_date_time.epoch }}.crt"
+                    privatekey_path: "{{ rhbk_tls_private_key.filename }}"
+                    csr_path: "{{ rhbk_tls_csr.filename }}"
+                    provider: selfsigned
+                    selfsigned_not_after: "+{{ rhbk_tls_cert_valid_days }}d"
+                    return_content: true
+                  register: rhbk_tls_certificate
+
+                - name: Create TLS secret in OpenShift
+                  kubernetes.core.k8s:
+                    state: present
+                    resource_definition:
+                      apiVersion: v1
+                      kind: Secret
+                      metadata:
+                        name: "{{ rhbk_tls_secret_name }}"
+                        namespace: "{{ rhbk_namespace }}"
+                      type: kubernetes.io/tls
+                      data:
+                        tls.crt: "{{ rhbk_tls_certificate.certificate | b64encode }}"
+                        tls.key: "{{ rhbk_tls_private_key.privatekey | b64encode }}"
+                  no_log: true
+
+              always:
+                - name: Cleanup temporary certificate files
+                  ansible.builtin.file:
+                    path: "{{ item }}"
+                    state: absent
+                  loop:
+                    - "{{ rhbk_tls_private_key.filename | default(omit) }}"
+                    - "{{ rhbk_tls_csr.filename | default(omit) }}"
+                    - "{{ rhbk_tls_certificate.filename | default(omit) }}"
+                  when: item is defined
+
+            - name: Create database secret
+              kubernetes.core.k8s:
+                state: present
+                resource_definition:
+                  apiVersion: v1
+                  kind: Secret
+                  metadata:
+                    name: "{{ rhbk_db_secret_name }}"
+                    namespace: "{{ rhbk_namespace }}"
+                  stringData:
+                    username: "{{ rhbk_db_username }}"
+                    password: "{{ rhbk_db_password }}"
+                  type: Opaque
+                wait: true
+
+            - name: Create RHBK (Keycloak) instance
+              kubernetes.core.k8s:
+                state: present
+                resource_definition:
+                  apiVersion: k8s.keycloak.org/v2alpha1
+                  kind: Keycloak
+                  metadata:
+                    name: "{{ rhbk_instance_name }}"
+                    namespace: "{{ rhbk_namespace }}"
+                  spec:
+                    instances: 1
+                    db:
+                      vendor: postgres
+                      host: "{{ rhbk_db_host }}"
+                      port: "{{ rhbk_db_port | int }}"
+                      database: "{{ rhbk_db_name }}"
+                      schema: public
+                      usernameSecret:
+                        name: "{{ rhbk_db_secret_name }}"
+                        key: username
+                      passwordSecret:
+                        name: "{{ rhbk_db_secret_name }}"
+                        key: password
+                    hostname:
+                      hostname: "{{ rhbk_hostname }}"
+                      strict: true
+                    http:
+                      tlsSecret: "{{ rhbk_tls_secret_name }}"
+                    proxy:
+                      headers: xforwarded
+                    ingress:
+                      enabled: false
+
+            - name: Wait for RHBK instance to be ready
+              kubernetes.core.k8s_info:
+                kind: Keycloak
+                name: "{{ rhbk_instance_name }}"
+                api_version: k8s.keycloak.org/v2alpha1
+                namespace: "{{ rhbk_namespace }}"
+              register: rhbk_instance_status
+              until:
+                - rhbk_instance_status.resources | length > 0
+                - rhbk_instance_status.resources[0].status.conditions is defined
+                - rhbk_instance_status.resources[0].status.conditions | selectattr('type', 'equalto', 'Ready') | map(attribute='status') | first == 'True'
+                - rhbk_instance_status.resources[0].status.conditions | selectattr('type', 'equalto', 'HasErrors') | map(attribute='status') | first == 'False'
+                - rhbk_instance_status.resources[0].status.conditions | selectattr('type', 'equalto', 'RollingUpdate') | map(attribute='status') | first == 'False'
+              retries: 60
+              delay: 15
+
+            - name: Read TLS secret for Route destination CA
+              kubernetes.core.k8s_info:
+                kind: Secret
+                name: "{{ rhbk_tls_secret_name }}"
+                namespace: "{{ rhbk_namespace }}"
+                api_version: v1
+              register: rhbk_tls_secret_data
+
+            - name: Set destination CA certificate fact
+              ansible.builtin.set_fact:
+                rhbk_destination_ca_cert: "{{ rhbk_tls_secret_data.resources[0].data['tls.crt'] | b64decode }}"
+
+            - name: Create reencrypt Route for RHBK
+              kubernetes.core.k8s:
+                state: present
+                resource_definition:
+                  apiVersion: route.openshift.io/v1
+                  kind: Route
+                  metadata:
+                    name: "{{ rhbk_instance_name }}"
+                    namespace: "{{ rhbk_namespace }}"
+                  spec:
+                    host: "{{ rhbk_hostname }}"
+                    to:
+                      kind: Service
+                      name: "{{ rhbk_instance_name }}-service"
+                    port:
+                      targetPort: https
+                    tls:
+                      termination: reencrypt
+                      insecureEdgeTerminationPolicy: Redirect
+                      destinationCACertificate: "{{ rhbk_destination_ca_cert }}"
+
+      always:
+        - name: If login succeeded revoke OpenShift API token
+          when: pre_tasks_auth_results['openshift_auth']['api_key'] is defined and aap_ocp_install_connection['api_key'] is not defined
+          redhat.openshift.openshift_auth:
+            host: "{{ aap_ocp_install_connection['host'] | mandatory }}"
+            validate_certs: "{{ aap_ocp_install_connection['validate_certs'] | default(omit) }}"
+            state: absent
+            api_key: "{{ pre_tasks_auth_results['openshift_auth']['api_key'] }}"
+          changed_when: false

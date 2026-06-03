@@ -1,0 +1,48 @@
+---
+rhbk_namespace: "demo-rhbk"
+rhbk_channel: "stable-v26.4"
+rhbk_operator_approval: "Manual"
+# Instance configuration
+rhbk_instance_name: "demo-keycloak"
+rhbk_hostname:
+# TLS certificate configuration
+rhbk_tls_secret_name: "rhbk-tls-cert"
+rhbk_tls_common_name: "rhbk.{{ rhbk_namespace }}.svc.cluster.local"
+rhbk_tls_cert_valid_days: 365
+rhbk_tls_key_size: 2048
+rhbk_tls_organization: "Red Hat"
+rhbk_tls_organizational_unit: "RHBK"
+rhbk_tls_force_replace: false
+# DB configuration
+rhbk_db_secret_name: "rhbk-db-cred"
+rhbk_db_username:
+rhbk_db_password:
+rhbk_db_host:
+rhbk_db_port:
+rhbk_db_name:
+# RHBK realm configuration
+rhbk_realm_name: "aap"
+rhbk_realm_display_name: "Ansible Automation Platform"
+rhbk_context: ""
+rhbk_url: "https://{{ rhbk_hostname }}"
+rhbk_validate_certs: true
+# RHBK OIDC client configuration
+rhbk_oidc_client_enabled: false
+rhbk_oidc_client_id: "ansible-automation-platform"
+rhbk_oidc_client_name: "Ansible Automation Platform"
+rhbk_oidc_client_description: "OIDC client for Ansible Automation Platform"
+rhbk_oidc_client_secret:
+rhbk_oidc_client_roles: []
+# RHBK SAML client configuration
+rhbk_saml_client_enabled: false
+rhbk_saml_client_id:
+rhbk_saml_client_name: "AAP Controller SAML"
+rhbk_saml_client_description: "SAML 2.0 client for AAP Automation Controller"
+rhbk_saml_client_redirect_uris: []
+rhbk_saml_client_roles: []
+# RHBK groups
+rhbk_groups: []
+# RHBK users
+rhbk_users: []
+rhbk_user_default_password:
+rhbk_user_password_temporary: true
