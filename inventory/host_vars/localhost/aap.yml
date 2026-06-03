@@ -6,34 +6,34 @@ aap_ocp_install_operator:
   channel: "stable-2.4"
   approval: Manual
 
-aap_ocp_external_db:
-  platform:
-    enabled: true
-    secret_name: demo-aap-db-config
-    host:
-    port:
-    name:
-    username:
-    password:
-    sslmode: "prefer"
-  controller:
-    enabled: true
-    secret_name: demo-ctlr-db-config
-    host:
-    port:
-    name:
-    username:
-    password:
-    sslmode: "prefer"
-  hub:
-    enabled: true
-    secret_name: demo-pah-db-config
-    host:
-    port:
-    name:
-    username:
-    password:
-    sslmode: "prefer"
+# aap_ocp_external_db:
+#   platform:
+#     enabled: true
+#     secret_name: demo-aap-db-config
+#     host:
+#     port:
+#     name:
+#     username:
+#     password:
+#     sslmode: "prefer"
+#   controller:
+#     enabled: true
+#     secret_name: demo-ctlr-db-config
+#     host:
+#     port:
+#     name:
+#     username:
+#     password:
+#     sslmode: "prefer"
+#   hub:
+#     enabled: true
+#     secret_name: demo-pah-db-config
+#     host:
+#     port:
+#     name:
+#     username:
+#     password:
+#     sslmode: "prefer"
 
 aap_ocp_install_platform:
   instance_name: demo-aap
