@@ -15,5 +15,7 @@ ansible-navigator:
     image: quay.io/branic/development-ee:latest
     pull:
       policy: missing
+    container-options:
+      - "--network=host"
 
   mode: stdout
