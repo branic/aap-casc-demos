@@ -1,0 +1,31 @@
+---
+# AAP 2.6 OIDC authenticator name (referenced by authenticator maps)
+aap_oidc_authenticator_name: "RHBK OIDC"
+# Deterministic slug for the authenticator (makes the callback URL predictable)
+aap_oidc_authenticator_slug: "rhbk-oidc"
+# RHBK group granting AAP superuser (Platform Administrator) access
+aap_oidc_superuser_group: "aap-admins"
+# RHBK group granting AAP platform auditor access
+aap_oidc_auditor_group: "aap-auditors"
+
+# Gateway authenticators (consumed by infra.aap_configuration.gateway_authenticators)
+gateway_authenticators:
+  - name: "{{ aap_oidc_authenticator_name }}"
+    slug: "{{ aap_oidc_authenticator_slug }}"
+    type: "ansible_base.authentication.authenticator_plugins.oidc"
+    enabled: true
+    create_objects: true
+    remove_users: true
+    configuration:
+      OIDC_ENDPOINT: "{{ rhbk_url }}/realms/{{ rhbk_realm_name }}"
+      KEY: "{{ rhbk_oidc_client_id }}"
+      SECRET: "{{ rhbk_oidc_client_secret }}"
+      VERIFY_SSL: "{{ rhbk_validate_certs }}"
+      GROUPS_CLAIM: "group"
+      JWT_ALGORITHMS:
+        - RS256
+    order: 1
+    state: present
+
+# Gateway authenticator maps (consumed by infra.aap_configuration.gateway_authenticator_maps)
+gateway_authenticator_maps: []

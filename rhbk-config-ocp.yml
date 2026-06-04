@@ -192,13 +192,13 @@
                 name: "{{ rhbk_oidc_client_name }}"
                 description: "{{ rhbk_oidc_client_description }}"
                 secret: "{{ rhbk_oidc_client_secret | default(omit, true) }}"
+                redirect_uris: "{{ rhbk_oidc_client_redirect_uris }}"
                 client_authenticator_type: client-secret
                 public_client: false
                 protocol: openid-connect
                 standard_flow_enabled: true
                 direct_access_grants_enabled: true
                 attributes:
-                  user.info.response.signature.alg: RS256
                   request.object.signature.alg: RS256
                 protocol_mappers:
                   - name: family name

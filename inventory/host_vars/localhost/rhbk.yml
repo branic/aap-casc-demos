@@ -37,6 +37,8 @@ rhbk_oidc_client_id: "ansible-automation-platform"
 rhbk_oidc_client_name: "Ansible Automation Platform"
 rhbk_oidc_client_description: "OIDC client for Ansible Automation Platform"
 rhbk_oidc_client_secret:
+rhbk_oidc_client_redirect_uris:
+  - "{{ aap_hostname }}/api/gateway/social/complete/{{ aap_oidc_authenticator_slug }}/"
 rhbk_oidc_client_roles: []
 # RHBK SAML client configuration
 rhbk_saml_client_enabled: false
